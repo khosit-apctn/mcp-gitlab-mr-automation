@@ -1,0 +1,8 @@
+{
+  "default_assignee": "@s99209",
+  "default_reviewer": "@s99209",
+  "default_labels": "",
+  "is_draft": true,
+  "should_delete_source_branch": true,
+  "should_squash": true
+}
