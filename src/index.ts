@@ -73,12 +73,34 @@ class GitLabMRServer {
             `Invalid arguments for tool ${toolName}: ${error.message}`
           );
         }
-        
-        // Return standard error response
+
+        // Enhanced error logging and response
+        console.error(`[ERROR] Tool ${toolName} failed:`, error);
+
+        let errorMessage = `Error executing ${toolName}: ${error.message}`;
+
+        // Include additional error details if available
+        if (error.cause) {
+          errorMessage += `\nCause: ${JSON.stringify(error.cause)}`;
+        }
+        if (error.response) {
+          errorMessage += `\nHTTP Response: ${JSON.stringify({
+            status: error.response.status,
+            statusText: error.response.statusText,
+            data: error.response.data
+          })}`;
+        }
+        if (error.description) {
+          errorMessage += `\nDescription: ${error.description}`;
+        }
+        if (error.stack) {
+          errorMessage += `\nStack: ${error.stack}`;
+        }
+
         return {
           content: [{
             type: "text",
-            text: `Error executing ${toolName}: ${error.message}`
+            text: errorMessage
           }],
           isError: true,
         };

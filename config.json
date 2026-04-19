@@ -1,6 +1,6 @@
 {
-  "default_assignee": "@s99209",
-  "default_reviewer": "@s99209",
+  "default_assignee": "@s99209 @s99343",
+  "default_reviewer": "@s99209 @s99343",
   "default_labels": "",
   "is_draft": true,
   "should_delete_source_branch": true,
