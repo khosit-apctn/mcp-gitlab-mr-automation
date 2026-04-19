@@ -3,6 +3,57 @@ import { getGitProjectInfo } from '../utils/git.js';
 import { execSync } from 'child_process';
 import { extractTicketId, inferCommitType } from '../utils/branchParser.js';
 
+/**
+ * Ensures every label token that contains spaces is wrapped in double-quotes.
+ * Handles the case where an AI omits quotes, e.g. "~needs review" → ~"needs review".
+ * Tokens that are already quoted or contain no spaces are left untouched.
+ *
+ * Examples:
+ *   "~bug ~needs review ~\"3.9.0\""  →  "~bug ~\"needs review\" ~\"3.9.0\""
+ *   "~\"already quoted\""            →  "~\"already quoted\""
+ */
+export function normalizeLabels(labels: string): string {
+  // Split on whitespace boundaries, but keep quoted groups together
+  // Strategy: tokenize by splitting on spaces, then re-join multi-word label tokens
+  // A label starts with ~ (optional) and may span multiple words until the next ~
+  const tokens: string[] = [];
+  const raw = labels.trim();
+
+  // Split into label segments by finding positions of ~ (that are not inside quotes)
+  const segments = raw.split(/(~)/).filter(s => s !== '');
+
+  let i = 0;
+  let current = '';
+  for (const seg of segments) {
+    if (seg === '~') {
+      if (current) tokens.push(current.trim());
+      current = '~';
+    } else {
+      current += seg;
+    }
+  }
+  if (current) tokens.push(current.trim());
+
+  return tokens
+    .map(token => {
+      // Split off the leading ~ or ~~ prefix
+      const prefixMatch = token.match(/^(~+)(.*)$/);
+      if (!prefixMatch) return token; // Not a ~ label, return as-is
+
+      const prefix = prefixMatch[1];
+      const body = prefixMatch[2].trim();
+
+      // Already quoted
+      if (body.startsWith('"') && body.endsWith('"')) return `${prefix}${body}`;
+
+      // Contains a space → wrap in double-quotes
+      if (body.includes(' ')) return `${prefix}"${body}"`;
+
+      return `${prefix}${body}`;
+    })
+    .join(' ');
+}
+
 export function getGitLabContext(cwd: string) {
   let baseUrl = process.env.GITLAB_URL;
   let projectPath = '';
@@ -68,8 +119,18 @@ export async function createAutomatedMr(
   shouldDeleteSourceBranch: boolean = true,
   shouldSquash: boolean = true
 ) {
+  // Fail-fast: source and target branch must be different
+  if (sourceBranch === targetBranch) {
+    throw new Error(
+      `Invalid MR: source_branch and target_branch must be different, but both are "${sourceBranch}".`
+    );
+  }
+
   const { client, projectPath } = getGitLabContext(cwd);
   if (!projectPath) throw new Error('Could not determine project path from git repository.');
+
+  // Normalize labels to ensure multi-word labels are properly quoted
+  const normalizedLabels = labels ? normalizeLabels(labels) : undefined;
 
   let finalTitle = title;
   if (isDraft && !finalTitle.toLowerCase().startsWith('draft:')) {
@@ -87,8 +148,8 @@ export async function createAutomatedMr(
       const formattedReviewer = reviewer.split(/\s+/).filter(a => a).map(a => a.startsWith('@') ? a : `@${a}`).join(' ');
       finalDescription += `/assign_reviewer ${formattedReviewer}\n`;
     }
-    if (labels) {
-      finalDescription += `/label ${labels}\n`;
+    if (normalizedLabels) {
+      finalDescription += `/label ${normalizedLabels}\n`;
     }
   }
 
@@ -181,6 +242,109 @@ export function gitPushLocal(cwd: string, remote: string = 'origin', branch?: st
     return { output: output.trim() || 'Pushed successfully.' };
   } catch (error: any) {
     throw new Error(`Git push failed: ${error.message}\nOutput: ${error.stdout || error.stderr}`);
+  }
+}
+
+export async function updateMr(
+  cwd: string,
+  mrIid: number,
+  updates: {
+    title?: string;
+    description?: string;
+    assignee?: string;
+    reviewer?: string;
+    labels?: string;
+    isDraft?: boolean;
+    shouldDeleteSourceBranch?: boolean;
+    shouldSquash?: boolean;
+    targetBranch?: string;
+    stateEvent?: 'close' | 'reopen';
+  }
+) {
+  const { client, projectPath } = getGitLabContext(cwd);
+  if (!projectPath) throw new Error('Could not determine project path from git repository.');
+
+  // Fetch existing MR to get current title and description
+  const existingMr = await client.MergeRequests.show(projectPath, mrIid);
+
+  // Resolve title with draft status logic
+  let finalTitle: string | undefined;
+  if (updates.title !== undefined || updates.isDraft !== undefined) {
+    let baseTitle = updates.title !== undefined ? updates.title : (existingMr.title as string);
+
+    // Strip existing Draft: prefix for clean processing
+    baseTitle = baseTitle.replace(/^Draft:\s*/i, '');
+
+    if (updates.isDraft === true) {
+      baseTitle = `Draft: ${baseTitle}`;
+    } else if (updates.isDraft === undefined) {
+      // Preserve existing draft status if isDraft was not explicitly provided
+      const wasDraft = (existingMr.title as string).toLowerCase().startsWith('draft:');
+      if (wasDraft) {
+        baseTitle = `Draft: ${baseTitle}`;
+      }
+    }
+    // isDraft === false means remove draft prefix, which is already done above
+
+    finalTitle = baseTitle;
+  }
+
+  // Resolve description with Quick Actions
+  let finalDescription: string | undefined;
+  if (updates.description !== undefined || updates.assignee || updates.reviewer || updates.labels) {
+    let baseDescription = updates.description !== undefined ? updates.description : (existingMr.description as string || '');
+
+    if (updates.assignee || updates.reviewer || updates.labels) {
+      baseDescription += '\n\n';
+      if (updates.assignee) {
+        const formattedAssignee = updates.assignee.split(/\s+/).filter(a => a).map(a => a.startsWith('@') ? a : `@${a}`).join(' ');
+        baseDescription += `/assign ${formattedAssignee}\n`;
+      }
+      if (updates.reviewer) {
+        const formattedReviewer = updates.reviewer.split(/\s+/).filter(a => a).map(a => a.startsWith('@') ? a : `@${a}`).join(' ');
+        baseDescription += `/assign_reviewer ${formattedReviewer}\n`;
+      }
+      if (updates.labels) {
+        baseDescription += `/label ${normalizeLabels(updates.labels)}\n`;
+      }
+    }
+
+    finalDescription = baseDescription;
+  }
+
+  // Build options payload with only explicitly provided fields
+  const options: Record<string, any> = {};
+  if (finalTitle !== undefined) options.title = finalTitle;
+  if (finalDescription !== undefined) options.description = finalDescription;
+  if (updates.targetBranch !== undefined) options.targetBranch = updates.targetBranch;
+  if (updates.stateEvent !== undefined) options.stateEvent = updates.stateEvent;
+  if (updates.shouldDeleteSourceBranch !== undefined) options.removeSourceBranch = updates.shouldDeleteSourceBranch;
+  if (updates.shouldSquash !== undefined) options.squash = updates.shouldSquash;
+
+  try {
+    const mr = await client.MergeRequests.edit(projectPath, mrIid, options);
+    return mr;
+  } catch (error: any) {
+    const errorDetails = {
+      message: error.message,
+      projectPath,
+      mrIid,
+      cause: error.cause,
+      response: error.response ? {
+        status: error.response.status,
+        statusText: error.response.statusText,
+        data: error.response.data
+      } : undefined
+    };
+
+    console.error('[updateMr] Failed to update MR:', errorDetails);
+
+    throw new Error(
+      `Failed to update MR: ${error.message}\n` +
+      `Project: ${projectPath}\n` +
+      `MR IID: ${mrIid}\n` +
+      `Response: ${JSON.stringify(errorDetails.response || 'No response data')}`
+    );
   }
 }
 

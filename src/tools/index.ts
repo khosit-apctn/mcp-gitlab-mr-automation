@@ -3,6 +3,7 @@ import {
     getFileContents,
     listRepositoryTree,
     createAutomatedMr,
+    updateMr,
     searchProjects,
     createBranch,
     pushFiles,
@@ -181,6 +182,45 @@ export const TOOLS = {
             const data = await generateMrContent(args.cwd, args.target_branch, args.source_branch);
             return {
                 content: [{ type: 'text', text: typeof data === 'string' ? data : JSON.stringify(data, null, 2) }]
+            };
+        }
+    },
+
+    update_mr: {
+        name: 'update_mr',
+        description: 'Update an existing GitLab Merge Request by its internal ID (iid). Only the fields you provide will be modified.',
+        schema: z.object({
+            cwd: z.string().describe('The current working directory of the project'),
+            mr_iid: z.number().describe('The internal ID (iid) of the Merge Request to update'),
+            title: z.string().optional().describe('New title for the Merge Request'),
+            description: z.string().optional().describe('New description for the Merge Request'),
+            assignee: z.string().optional().describe('Space-separated usernames starting with @ (e.g. "@alice @bob")'),
+            reviewer: z.string().optional().describe('Space-separated usernames starting with @ (e.g. "@charlie")'),
+            labels: z.string().optional().describe('GitLab labels (e.g. ~bug ~"3.9.0")'),
+            isDraft: z.boolean().optional().describe('Set to true to mark as Draft, false to unmark'),
+            shouldDeleteSourceBranch: z.boolean().optional().describe('Whether to delete the source branch when merged'),
+            shouldSquash: z.boolean().optional().describe('Whether to squash commits when merged'),
+            targetBranch: z.string().optional().describe('Change the target branch of the MR'),
+            stateEvent: z.enum(['close', 'reopen']).optional().describe('Close or reopen the Merge Request')
+        }),
+        handler: async (args: any) => {
+            const { cwd, mr_iid, title, description, assignee, reviewer, labels, isDraft, shouldDeleteSourceBranch, shouldSquash, targetBranch, stateEvent } = args;
+
+            const updates: Record<string, any> = {};
+            if (title !== undefined) updates.title = title;
+            if (description !== undefined) updates.description = description;
+            if (assignee !== undefined) updates.assignee = assignee;
+            if (reviewer !== undefined) updates.reviewer = reviewer;
+            if (labels !== undefined) updates.labels = labels;
+            if (isDraft !== undefined) updates.isDraft = isDraft;
+            if (shouldDeleteSourceBranch !== undefined) updates.shouldDeleteSourceBranch = shouldDeleteSourceBranch;
+            if (shouldSquash !== undefined) updates.shouldSquash = shouldSquash;
+            if (targetBranch !== undefined) updates.targetBranch = targetBranch;
+            if (stateEvent !== undefined) updates.stateEvent = stateEvent;
+
+            const data = await updateMr(cwd, mr_iid, updates);
+            return {
+                content: [{ type: 'text', text: JSON.stringify(data, null, 2) }]
             };
         }
     }
