@@ -1,27 +1,16 @@
 #!/usr/bin/env node
 
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-  ErrorCode,
-  McpError
-} from "@modelcontextprotocol/sdk/types.js";
 import { TOOLS } from "./tools/index.js";
-import { zodToJsonSchema } from 'zod-to-json-schema';
 
 class GitLabMRServer {
-  private server: Server;
+  private server: McpServer;
 
   constructor() {
-    this.server = new Server({
+    this.server = new McpServer({
       name: "mcp-gitlab-mr-automation",
       version: "1.0.0",
-    }, {
-      capabilities: {
-        tools: {}
-      }
     });
 
     this.setupHandlers();
@@ -29,7 +18,7 @@ class GitLabMRServer {
   }
 
   private setupErrorHandling(): void {
-    this.server.onerror = (error) => {
+    this.server.server.onerror = (error) => {
       console.error("[MCP Error]", error);
     };
 
@@ -40,71 +29,50 @@ class GitLabMRServer {
   }
 
   private setupHandlers(): void {
-    // List available tools
-    this.server.setRequestHandler(ListToolsRequestSchema, async () => {
-      return {
-        tools: Object.values(TOOLS).map((tool) => ({
-          name: tool.name,
+    Object.values(TOOLS).forEach((tool: any) => {
+      this.server.registerTool(
+        tool.name,
+        {
           description: tool.description,
-          inputSchema: zodToJsonSchema(tool.schema as any)
-        }))
-      };
-    });
+          inputSchema: tool.schema.shape,
+        },
+        async (args: any) => {
+          try {
+            return await tool.handler(args);
+          } catch (error: any) {
+            // Enhanced error logging and response
+            console.error(`[ERROR] Tool ${tool.name} failed:`, error);
 
-    // Handle tool execution
-    this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
-      const toolName = request.params.name;
-      const tool = Object.values(TOOLS).find(t => t.name === toolName);
+            let errorMessage = `Error executing ${tool.name}: ${error.message}`;
 
-      if (!tool) {
-        throw new McpError(
-          ErrorCode.MethodNotFound,
-          `Unknown tool: ${toolName}`
-        );
-      }
+            // Include additional error details if available
+            if (error.cause) {
+              errorMessage += `\nCause: ${JSON.stringify(error.cause)}`;
+            }
+            if (error.response) {
+              errorMessage += `\nHTTP Response: ${JSON.stringify({
+                status: error.response.status,
+                statusText: error.response.statusText,
+                data: error.response.data
+              })}`;
+            }
+            if (error.description) {
+              errorMessage += `\nDescription: ${error.description}`;
+            }
+            if (error.stack) {
+              errorMessage += `\nStack: ${error.stack}`;
+            }
 
-      try {
-        const parsedArgs = tool.schema.parse(request.params.arguments);
-        return await tool.handler(parsedArgs);
-      } catch (error: any) {
-        if (error.name === 'ZodError') {
-          throw new McpError(
-            ErrorCode.InvalidParams,
-            `Invalid arguments for tool ${toolName}: ${error.message}`
-          );
+            return {
+              content: [{
+                type: "text",
+                text: errorMessage
+              }],
+              isError: true,
+            };
+          }
         }
-
-        // Enhanced error logging and response
-        console.error(`[ERROR] Tool ${toolName} failed:`, error);
-
-        let errorMessage = `Error executing ${toolName}: ${error.message}`;
-
-        // Include additional error details if available
-        if (error.cause) {
-          errorMessage += `\nCause: ${JSON.stringify(error.cause)}`;
-        }
-        if (error.response) {
-          errorMessage += `\nHTTP Response: ${JSON.stringify({
-            status: error.response.status,
-            statusText: error.response.statusText,
-            data: error.response.data
-          })}`;
-        }
-        if (error.description) {
-          errorMessage += `\nDescription: ${error.description}`;
-        }
-        if (error.stack) {
-          errorMessage += `\nStack: ${error.stack}`;
-        }
-
-        return {
-          content: [{
-            type: "text",
-            text: errorMessage
-          }],
-          isError: true,
-        };
-      }
+      );
     });
   }
 
