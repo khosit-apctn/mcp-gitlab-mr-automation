@@ -76,6 +76,10 @@ export function getGitLabContext(cwd: string) {
     throw new Error('Please set GITLAB_TOKEN environment variable.');
   }
 
+  if (process.env.GITLAB_INSECURE === 'true') {
+    process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+  }
+
   const client = new Gitlab({
     host: baseUrl,
     token: token,
@@ -346,6 +350,48 @@ export async function updateMr(
       `Response: ${JSON.stringify(errorDetails.response || 'No response data')}`
     );
   }
+}
+
+export async function getMrComments(cwd: string, mrIid: number) {
+  const { client, projectPath } = getGitLabContext(cwd);
+  if (!projectPath) throw new Error('Could not determine project path from git repository.');
+
+  const discussions = await client.MergeRequestDiscussions.all(projectPath, mrIid);
+
+  const result = (discussions as any[]).map((discussion: any) => {
+    const notes = (discussion.notes || []).map((note: any) => {
+      const position = note.position;
+      return {
+        id: note.id,
+        author: note.author?.username,
+        body: note.body,
+        created_at: note.created_at,
+        updated_at: note.updated_at,
+        resolvable: note.resolvable,
+        resolved: note.resolved,
+        system: note.system,
+        position: position
+          ? {
+              file_path: position.new_path || position.old_path,
+              old_path: position.old_path,
+              new_path: position.new_path,
+              line: position.new_line ?? position.old_line ?? null,
+              old_line: position.old_line ?? null,
+              new_line: position.new_line ?? null,
+              position_type: position.position_type
+            }
+          : null
+      };
+    });
+
+    return {
+      discussion_id: discussion.id,
+      individual_note: discussion.individual_note,
+      notes
+    };
+  });
+
+  return result;
 }
 
 export async function generateMrContent(cwd: string, targetBranch: string, sourceBranch?: string) {

@@ -8,7 +8,8 @@ import {
     createBranch,
     pushFiles,
     gitPushLocal,
-    generateMrContent
+    generateMrContent,
+    getMrComments
 } from '../api/gitlab.js';
 import { loadConfig } from '../utils/config.js';
 
@@ -182,6 +183,21 @@ export const TOOLS = {
             const data = await generateMrContent(args.cwd, args.target_branch, args.source_branch);
             return {
                 content: [{ type: 'text', text: typeof data === 'string' ? data : JSON.stringify(data, null, 2) }]
+            };
+        }
+    },
+
+    get_mr_comments: {
+        name: 'get_mr_comments',
+        description: 'Fetch all comments (discussions) of a Merge Request including inline comments with file path and line number',
+        schema: z.object({
+            cwd: z.string().describe('The current working directory of the project'),
+            mr_iid: z.number().describe('The internal ID (iid) of the Merge Request')
+        }),
+        handler: async (args: any) => {
+            const data = await getMrComments(args.cwd, args.mr_iid);
+            return {
+                content: [{ type: 'text', text: JSON.stringify(data, null, 2) }]
             };
         }
     },
