@@ -5,9 +5,14 @@ A Model Context Protocol (MCP) server that provides automated mechanisms to inte
 ## Tools
 - `get_file_contents`: Fetch file content by path and branch
 - `list_repository_tree`: List files/folders in the repository
-- `create_automated_mr`: Create an automated MR (uses quick actions to assign/review)
-- `get_mr_details`: Fetch detail text and diffs for a given MR IID
+- `create_automated_mr`: Create a new automated Merge Request
+- `update_mr`: Update an existing Merge Request by its internal ID (iid)
 - `search_projects`: Search for a project inside the GitLab instance
+- `create_branch`: Create a new branch in the GitLab repository
+- `push_files`: Create a commit with multiple file actions and push it to a branch via GitLab API
+- `git_push_local`: Execute a literal git push command from the local machine
+- `generate_mr_content`: Generate a title and description for a Merge Request based on commits between branches
+- `get_mr_comments`: Fetch all comments (discussions) of a Merge Request, including inline comments with file path and line number
 
 ## Setup
 
