@@ -9,7 +9,8 @@ import {
     pushFiles,
     gitPushLocal,
     generateMrContent,
-    getMrComments
+    getMrComments,
+    replyToMrComment
 } from '../api/gitlab.js';
 import { loadConfig } from '../utils/config.js';
 
@@ -196,6 +197,23 @@ export const TOOLS = {
         }),
         handler: async (args: any) => {
             const data = await getMrComments(args.cwd, args.mr_iid);
+            return {
+                content: [{ type: 'text', text: JSON.stringify(data, null, 2) }]
+            };
+        }
+    },
+
+    reply_mr_comment: {
+        name: 'reply_mr_comment',
+        description: 'Reply to a comment (discussion) in a Merge Request',
+        schema: z.object({
+            cwd: z.string().describe('The current working directory of the project'),
+            mr_iid: z.number().describe('The internal ID (iid) of the Merge Request'),
+            discussion_id: z.string().describe('The discussion ID to reply to (from get_mr_comments)'),
+            body: z.string().describe('The reply message')
+        }),
+        handler: async (args: any) => {
+            const data = await replyToMrComment(args.cwd, args.mr_iid, args.discussion_id, args.body);
             return {
                 content: [{ type: 'text', text: JSON.stringify(data, null, 2) }]
             };

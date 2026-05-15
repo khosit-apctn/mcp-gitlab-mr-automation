@@ -352,6 +352,14 @@ export async function updateMr(
   }
 }
 
+export async function replyToMrComment(cwd: string, mrIid: number, discussionId: string, body: string) {
+  const { client, projectPath } = getGitLabContext(cwd);
+  if (!projectPath) throw new Error('Could not determine project path from git repository.');
+
+  const note = await client.MergeRequestDiscussions.createNote(projectPath, mrIid, discussionId, { body });
+  return note;
+}
+
 export async function getMrComments(cwd: string, mrIid: number) {
   const { client, projectPath } = getGitLabContext(cwd);
   if (!projectPath) throw new Error('Could not determine project path from git repository.');

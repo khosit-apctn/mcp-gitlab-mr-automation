@@ -13,6 +13,7 @@ A Model Context Protocol (MCP) server that provides automated mechanisms to inte
 - `git_push_local`: Execute a literal git push command from the local machine
 - `generate_mr_content`: Generate a title and description for a Merge Request based on commits between branches
 - `get_mr_comments`: Fetch all comments (discussions) of a Merge Request, including inline comments with file path and line number
+- `reply_mr_comment`: Reply to a comment (discussion) in a Merge Request
 
 ## Setup
 
