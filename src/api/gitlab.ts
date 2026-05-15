@@ -356,7 +356,9 @@ export async function replyToMrComment(cwd: string, mrIid: number, discussionId:
   const { client, projectPath } = getGitLabContext(cwd);
   if (!projectPath) throw new Error('Could not determine project path from git repository.');
 
-  const note = await client.MergeRequestDiscussions.createNote(projectPath, mrIid, discussionId, { body });
+  // Use the REST API directly because GitBeaker's MergeRequestDiscussions doesn't have a proper addNote method
+  // POST /projects/:id/merge_requests/:merge_request_iid/discussions/:discussion_id/notes
+  const note = await client.MergeRequestDiscussions.addNote(projectPath, mrIid, discussionId, body);
   return note;
 }
 
